@@ -1,61 +1,84 @@
+# main.py (Flask webhook version)
 import os
 import requests
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from flask import Flask, request, jsonify
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
-HUGGINGFACE_KEY = os.environ.get("HUGGINGFACE_TOKEN")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # مثلا https://akbot.onrender.com
+HUGGINGFACE_TOKEN = os.environ.get("HUGGINGFACE_TOKEN")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("ربات روشن شد ✔️")
+if not TELEGRAM_TOKEN:
+    raise RuntimeError("TELEGRAM_TOKEN is not set")
 
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = " ".join(context.args)
-    if not text:
-        return await update.message.reply_text("پیام بعد /chat بنویس.")
+app = Flask(__name__)
 
+
+def send_message(chat_id, text):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    requests.post(url, json={"chat_id": chat_id, "text": text})
+
+
+def chat_with_openai(prompt):
+    if not OPENAI_KEY:
+        return "OpenAI key not configured."
     headers = {"Authorization": f"Bearer {OPENAI_KEY}"}
     data = {
-        "model": "gpt-3.5-turbo",
-        "messages": [{"role":"user", "content": text}]
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": prompt}]
     }
-
+    r = requests.post("https://api.openai.com/v1/chat/completions",
+                      json=data, headers=headers)
     try:
-        r = requests.post("https://api.openai.com/v1/chat/completions", json=data, headers=headers)
-        msg = r.json()['choices'][0]['message']['content']
-        await update.message.reply_text(msg)
-    except Exception as e:
-        await update.message.reply_text(str(e))
+        return r.json()["choices"][0]["message"]["content"]
+    except:
+        return "خطا در دریافت پاسخ از OpenAI."
 
-async def img(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    prompt = " ".join(context.args)
-    if not prompt:
-        return await update.message.reply_text("توضیح تصویر بعد /img بنویس.")
 
-    try:
-        r = requests.post(
-            "https://api-inference.huggingface.co/models/CompVis/stable-diffusion-v1-4",
-            headers={"Authorization": f"Bearer {HUGGINGFACE_KEY}"},
-            json={"inputs": prompt}
-        )
-        await update.message.reply_photo(photo=r.content)
-    except Exception as e:
-        await update.message.reply_text(str(e))
+@app.route("/", methods=["GET"])
+def home():
+    return "Bot is live!"
+
+
+@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+def webhook():
+    update = request.get_json()
+    if not update:
+        return jsonify({}), 200
+
+    msg = update.get("message")
+    if not msg:
+        return jsonify({}), 200
+
+    chat_id = msg["chat"]["id"]
+    text = msg.get("text", "")
+
+    if text.startswith("/start"):
+        send_message(chat_id, "ربات با موفقیت فعال شد 🎉")
+        return jsonify({}), 200
+
+    if text.startswith("/chat"):
+        prompt = text.replace("/chat", "").strip()
+        if not prompt:
+            send_message(chat_id, "متن را بعد از /chat بنویس.")
+        else:
+            ans = chat_with_openai(prompt)
+            send_message(chat_id, ans)
+        return jsonify({}), 200
+
+    send_message(chat_id, "دستور ناشناس — از /chat استفاده کن.")
+    return jsonify({}), 200
+
+
+@app.route("/set-webhook", methods=["GET"])
+def set_webhook():
+    url = f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}"
+    r = requests.get(
+        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook?url={url}"
+    )
+    return jsonify(r.json())
+
 
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("chat", chat))
-    app.add_handler(CommandHandler("img", img))
-
     port = int(os.environ.get("PORT", 10000))
-
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        url_path=TELEGRAM_TOKEN,
-        webhook_url=f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}"
-    )
+    app.run(host="0.0.0.0", port=port)
