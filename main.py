@@ -1,3 +1,9 @@
+import asyncio
+
+async def startup():
+    await application.initialize()
+
+asyncio.get_event_loop().run_until_complete(startup())
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import (
