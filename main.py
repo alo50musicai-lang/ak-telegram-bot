@@ -1,9 +1,3 @@
-import asyncio
-
-async def startup():
-    await application.initialize()
-
-asyncio.get_event_loop().run_until_complete(startup())
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import (
@@ -20,6 +14,13 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # ← مهم
 
 app = Flask(__name__)
+
+import asyncio
+
+async def startup():
+    await application.initialize()
+
+asyncio.get_event_loop().run_until_complete(startup())
 
 # ------------------ handlers ------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
