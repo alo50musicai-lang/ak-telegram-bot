@@ -15,9 +15,10 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # ← مهم
 import asyncio
 
 async def startup():
-    await application.initialize()
+    await Application.initialize()
 
 asyncio.get_event_loop().run_until_complete(startup())
+
 app = Flask(__name__)
 
 
