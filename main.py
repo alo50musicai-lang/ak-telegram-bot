@@ -50,13 +50,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    import requests
-
-@app.route("/set-webhook", methods=["GET"])
-def set_webhook():
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook"
-    data = {
-        "url": "https://ak-telegram-bot-9.onrender.com/webhook"
-    }
-    r = requests.post(url, json=data)
-    return r.text
+    
