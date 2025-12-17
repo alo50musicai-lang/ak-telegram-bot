@@ -1,2 +1,3 @@
-Flask==2.3.7
-python-telegram-bot==20.4
+Flask
+requests
+gunicorn
