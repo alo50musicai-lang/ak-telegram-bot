@@ -2,50 +2,7 @@ from flask import Flask, request
 import requests
 import os
 from openai import OpenAI
-def detect_language(text):
-    # فارسی
-    if any('\u0600' <= ch <= '\u06FF' for ch in text):
-        # تشخیص عربی یا فارسی
-        if any(ch in text for ch in "يكىة"):
-            return "arabic"
-        return "persian"
 
-    # انگلیسی
-    if any('a' <= ch.lower() <= 'z' for ch in text):
-        return "english"
-
-    return "english"
-    def ai_chat(prompt):
-    lang = detect_language(prompt)
-
-    if lang == "persian":
-        system_prompt = (
-            "تو یک دستیار هوش مصنوعی فارسی‌زبان هستی. "
-            "پاسخ‌ها را فقط به زبان فارسی و روان بده. "
-            "لحن دوستانه و ساده داشته باش."
-        )
-
-    elif lang == "arabic":
-        system_prompt = (
-            "أنت مساعد ذكاء اصطناعي. "
-            "أجب فقط باللغة العربية وبأسلوب واضح وودّي."
-        )
-
-    else:  # english
-        system_prompt = (
-            "You are an AI assistant. "
-            "Answer only in English with a friendly and clear tone."
-        )
-
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    return response.choices[0].message.content
 # ---------- تنظیمات ----------
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -70,14 +27,50 @@ def send_photo(chat_id, photo_url, caption=None):
     requests.post(f"{TELEGRAM_API}/sendPhoto", json=data)
 
 # ---------- هوش مصنوعی ----------
+def detect_language(text):
+    """
+    تشخیص زبان پیام:
+    - fa: فارسی
+    - ar: عربی
+    - en: انگلیسی
+    """
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": f"Detect the language of this text: {text}. Only respond with 'fa', 'en', or 'ar'."}]
+        )
+        lang = response.choices[0].message.content.strip().lower()
+        if lang not in ["fa", "en", "ar"]:
+            lang = "en"  # پیش‌فرض انگلیسی
+        return lang
+    except:
+        return "en"
+
 def ai_chat(prompt):
+    """
+    پاسخ هوش مصنوعی با حفظ زبان پیام
+    """
+    lang = detect_language(prompt)
+    
+    # ترجمه دستور prompt به انگلیسی اگر لازم شد
+    if lang != "en":
+        messages = [
+            {"role": "system", "content": f"You are a helpful assistant. Respond in {lang}."},
+            {"role": "user", "content": prompt}
+        ]
+    else:
+        messages = [{"role": "user", "content": prompt}]
+    
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
-        messages=[{"role": "user", "content": prompt}]
+        messages=messages
     )
     return response.choices[0].message.content
 
 def ai_image(prompt):
+    """
+    ساخت تصویر با OpenAI
+    """
     image = client.images.generate(
         model="gpt-image-1",
         prompt=prompt,
@@ -112,22 +105,21 @@ def webhook():
     if text.startswith("/image"):
         prompt = text.replace("/image", "").strip()
         if not prompt:
-            send_message(chat_id, "❌ توضیح عکس را بنویس")
+            send_message(chat_id, "❌ لطفاً توضیح تصویر را بنویس")
         else:
             send_message(chat_id, "🎨 در حال ساخت تصویر...")
             url = ai_image(prompt)
             send_photo(chat_id, url, "تصویر ساخته شد ✅")
         return {"ok": True}
 
-    # موزیک (فعلاً شبیه‌سازی)
+    # موزیک (نسخه نمایشی)
     if text.startswith("/music"):
         prompt = text.replace("/music", "").strip()
         send_message(
             chat_id,
             "🎵 ساخت موزیک هوش مصنوعی:\n\n"
             f"سبک درخواستی: {prompt}\n\n"
-            "❗ فعلاً نسخه نمایشی است\n"
-            "در مرحله بعد وصل می‌کنیم به سرویس موزیک"
+            "❗ فعلاً نسخه نمایشی است"
         )
         return {"ok": True}
 
