@@ -2,7 +2,50 @@ from flask import Flask, request
 import requests
 import os
 from openai import OpenAI
+def detect_language(text):
+    # فارسی
+    if any('\u0600' <= ch <= '\u06FF' for ch in text):
+        # تشخیص عربی یا فارسی
+        if any(ch in text for ch in "يكىة"):
+            return "arabic"
+        return "persian"
 
+    # انگلیسی
+    if any('a' <= ch.lower() <= 'z' for ch in text):
+        return "english"
+
+    return "english"
+    def ai_chat(prompt):
+    lang = detect_language(prompt)
+
+    if lang == "persian":
+        system_prompt = (
+            "تو یک دستیار هوش مصنوعی فارسی‌زبان هستی. "
+            "پاسخ‌ها را فقط به زبان فارسی و روان بده. "
+            "لحن دوستانه و ساده داشته باش."
+        )
+
+    elif lang == "arabic":
+        system_prompt = (
+            "أنت مساعد ذكاء اصطناعي. "
+            "أجب فقط باللغة العربية وبأسلوب واضح وودّي."
+        )
+
+    else:  # english
+        system_prompt = (
+            "You are an AI assistant. "
+            "Answer only in English with a friendly and clear tone."
+        )
+
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    return response.choices[0].message.content
 # ---------- تنظیمات ----------
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
