@@ -1,7 +1,5 @@
 Flask
 requests
 gunicorn
-flask
-requests
 python-dotenv
 openai
