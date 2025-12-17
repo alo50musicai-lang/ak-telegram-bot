@@ -20,15 +20,12 @@ application.add_handler(CommandHandler("start", start))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
 
 # ---------------- routes ----------------
-@app.route("/", methods=["GET"])
-def home():
-    return "Bot is running!"
-
 @app.route("/webhook", methods=["POST"])
-async def webhook():
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    await application.process_update(update)
-    return "OK", 200
+def webhook():
+    print("POST received!")
+    data = request.get_json(force=True)
+    print(data)
+    return "ok"
 
 # ---------------- run ----------------
 if __name__ == "__main__":
