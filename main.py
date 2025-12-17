@@ -11,8 +11,6 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("سلام 👋 ربات فعاله")
 
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(update.message.text)
 
 # ---------------- application ----------------
 application = Application.builder().token(TOKEN).build()
