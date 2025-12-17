@@ -1,32 +1,37 @@
 from flask import Flask, request
-from telegram import Bot
 import os
+import requests
 
 app = Flask(__name__)
 
-# توکن ربات رو از Environment Variable بگیر
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-bot = Bot(TOKEN)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # URL رندر تو
 
-@app.route("/webhook", methods=["POST"])
+# Route اصلی webhook
+@app.route('/webhook', methods=['POST'])
 def webhook():
-    data = request.get_json()
-    
-    if "message" in data:
-        chat_id = data['message']['chat']['id']
-        text = data['message'].get('text', '')
+    update = request.get_json()
+    print("POST received!\n", update)
 
-        if text == "/start":
-            bot.send_message(chat_id=chat_id, text="سلام! ربات فعال شد ✅")
-        else:
-            bot.send_message(chat_id=chat_id, text=f"پیام شما: {text}")
+    if "message" in update:
+        chat_id = update["message"]["chat"]["id"]
+        text = update["message"].get("text", "")
 
-    return "ok"
+        # پاسخ ساده
+        send_message(chat_id, f"پیام شما دریافت شد: {text}")
 
-@app.route("/", methods=["GET"])
+    return "OK", 200
+
+def send_message(chat_id, text):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": chat_id, "text": text}
+    requests.post(url, json=payload)
+
+# صفحه اصلی فقط برای تست
+@app.route('/')
 def index():
-    return "Telegram bot is running!"
+    return "Bot is running ✅", 200
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    # برای تست محلی
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
