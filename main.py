@@ -1,32 +1,32 @@
 from flask import Flask, request
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram import Bot
 import os
 
 app = Flask(__name__)
 
+# توکن ربات رو از Environment Variable بگیر
 TOKEN = os.getenv("TELEGRAM_TOKEN")
+bot = Bot(TOKEN)
 
-# ---------------- handlers ----------------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("سلام 👋 ربات فعاله")
-
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(update.message.text)
-
-# ---------------- application ----------------
-application = Application.builder().token(TOKEN).build()
-application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-
-# ---------------- routes ----------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    print("POST received!")
-    data = request.get_json(force=True)
-    print(data)
+    data = request.get_json()
+    
+    if "message" in data:
+        chat_id = data['message']['chat']['id']
+        text = data['message'].get('text', '')
+
+        if text == "/start":
+            bot.send_message(chat_id=chat_id, text="سلام! ربات فعال شد ✅")
+        else:
+            bot.send_message(chat_id=chat_id, text=f"پیام شما: {text}")
+
     return "ok"
 
-# ---------------- run ----------------
+@app.route("/", methods=["GET"])
+def index():
+    return "Telegram bot is running!"
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
