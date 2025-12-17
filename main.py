@@ -1,80 +1,50 @@
 from flask import Flask, request
 import requests
 import os
-from openai import OpenAI
 from gtts import gTTS
-import base64
-import time
+import io
 
 # ---------- تنظیمات ----------
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN")  # Hugging Face Token
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-client = OpenAI(api_key=OPENAI_API_KEY)
+TOKEN = os.getenv("TELEGRAM_TOKEN")
 app = Flask(__name__)
-TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+TELEGRAM_API = f"https://api.telegram.org/bot{TOKEN}"
 
 # ---------- توابع تلگرام ----------
 def send_message(chat_id, text):
-    requests.post(f"{TELEGRAM_API}/sendMessage", json={"chat_id": chat_id, "text": text})
+    requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        json={"chat_id": chat_id, "text": text}
+    )
 
-def send_photo(chat_id, photo_path, caption=None):
-    files = {"photo": open(photo_path, "rb")}
-    data = {"chat_id": chat_id}
+def send_photo(chat_id, photo_url, caption=None):
+    data = {"chat_id": chat_id, "photo": photo_url}
     if caption:
         data["caption"] = caption
-    requests.post(f"{TELEGRAM_API}/sendPhoto", files=files, data=data)
+    requests.post(f"{TELEGRAM_API}/sendPhoto", json=data)
 
-def send_audio(chat_id, audio_path):
-    files = {"audio": open(audio_path, "rb")}
+def send_audio(chat_id, audio_bytes, filename="audio.mp3"):
+    url = f"{TELEGRAM_API}/sendAudio"
+    files = {"audio": (filename, audio_bytes)}
     data = {"chat_id": chat_id}
-    requests.post(f"{TELEGRAM_API}/sendAudio", files=files, data=data)
+    requests.post(url, data=data, files=files)
 
-# ---------- هوش مصنوعی ----------
-def ai_chat(prompt):
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.choices[0].message.content
-
-# ---------- تصویر با HuggingFace ----------
-def hf_image(prompt):
-    url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    payload = {"inputs": prompt}
-    response = requests.post(url, headers=headers, json=payload)
-    if response.status_code != 200:
-        return None
-    result = response.json()
-    if isinstance(result, list) and "generated_image" in result[0]:
-        img_b64 = result[0]["generated_image"]
-        with open("temp.png", "wb") as f:
-            f.write(base64.b64decode(img_b64))
-        return "temp.png"
-    return None
-
-# ---------- موزیک با HuggingFace MusicGen ----------
-def hf_music(prompt):
-    url = "https://api-inference.huggingface.co/models/suno/musicgen-small"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    payload = {"inputs": prompt}
-    response = requests.post(url, headers=headers, json=payload)
-    if response.status_code != 200:
-        return None
-    result = response.json()
-    if "generated_audio" in result:
-        audio_b64 = result["generated_audio"]
-        with open("music.mp3", "wb") as f:
-            f.write(base64.b64decode(audio_b64))
-        return "music.mp3"
-    return None
+# ---------- هوش مصنوعی ساده ----------
+def ai_chat(text):
+    # تشخیص زبان و پاسخ ساده
+    if any(word in text.lower() for word in ["hello", "hi", "how"]):
+        return "Hello 👋\nThis reply is in English."
+    elif any(word in text for word in ["سلام", "چطوری", "درود"]):
+        return "سلام 😊\nاین پاسخ به زبان فارسی است."
+    elif any(word in text for word in ["مرحبا", "أهلا"]):
+        return "مرحباً 👋\nهذا الرد باللغة العربية."
+    else:
+        return "سلام 😊 این پاسخ به زبان فارسی است."
 
 # ---------- Webhook ----------
 @app.route("/", methods=["POST"])
 def webhook():
     update = request.get_json()
+
     if "message" not in update:
         return {"ok": True}
 
@@ -83,38 +53,41 @@ def webhook():
 
     # /start
     if text == "/start":
-        send_message(chat_id, "🤖 سلام!\nدستورها:\n1️⃣ چت\n2️⃣ /image توضیح عکس\n3️⃣ /music توضیح موزیک")
+        send_message(chat_id,
+            "🤖 سلام!\n\n"
+            "دستورها:\n"
+            "1️⃣ چت: فقط پیام بفرست\n"
+            "2️⃣ عکس: /image توضیح\n"
+            "3️⃣ موزیک: /music متن"
+        )
         return {"ok": True}
 
-    # تصویر
+    # ساخت تصویر (نمونه رایگان)
     if text.startswith("/image"):
         prompt = text.replace("/image", "").strip()
         if not prompt:
             send_message(chat_id, "❌ لطفاً توضیح عکس را بنویسید")
         else:
             send_message(chat_id, "🎨 در حال ساخت تصویر...")
-            img_path = hf_image(prompt)
-            if img_path:
-                send_photo(chat_id, img_path, "تصویر ساخته شد ✅")
-            else:
-                send_message(chat_id, "❌ خطا در ساخت تصویر")
+            # استفاده از تصویر نمونه از اینترنت
+            sample_image = "https://placekitten.com/512/512"
+            send_photo(chat_id, sample_image, "تصویر ساخته شد ✅")
         return {"ok": True}
 
-    # موزیک
+    # ساخت موزیک/صدا با gTTS
     if text.startswith("/music"):
         prompt = text.replace("/music", "").strip()
         if not prompt:
-            send_message(chat_id, "❌ لطفاً توضیح موزیک را بنویسید")
+            send_message(chat_id, "❌ لطفاً متن موزیک/شعر را بنویسید")
         else:
-            send_message(chat_id, "🎵 در حال ساخت موزیک...")
-            audio_path = hf_music(prompt)
-            if audio_path:
-                send_audio(chat_id, audio_path)
-            else:
-                send_message(chat_id, "❌ خطا در ساخت موزیک")
+            tts = gTTS(prompt, lang="fa")
+            audio_bytes = io.BytesIO()
+            tts.write_to_fp(audio_bytes)
+            audio_bytes.seek(0)
+            send_audio(chat_id, audio_bytes, filename="music.mp3")
         return {"ok": True}
 
-    # چت هوشمند
+    # چت عادی
     reply = ai_chat(text)
     send_message(chat_id, reply)
     return {"ok": True}
