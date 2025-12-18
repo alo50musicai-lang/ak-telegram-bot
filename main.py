@@ -1,46 +1,56 @@
 from flask import Flask, request
 import requests
 import os
-from gtts import gTTS
-import io
 
-# ---------- تنظیمات ----------
-TOKEN = os.getenv("TELEGRAM_TOKEN")
+# ================== تنظیمات ==================
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+HF_TOKEN = os.getenv("HF_TOKEN")
+
+TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+
+HF_MODEL_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
+HF_HEADERS = {
+    "Authorization": f"Bearer {HF_TOKEN}"
+}
+
 app = Flask(__name__)
-TELEGRAM_API = f"https://api.telegram.org/bot{TOKEN}"
 
-# ---------- توابع تلگرام ----------
+# ================== توابع تلگرام ==================
 def send_message(chat_id, text):
     requests.post(
         f"{TELEGRAM_API}/sendMessage",
         json={"chat_id": chat_id, "text": text}
     )
 
-def send_photo(chat_id, photo_url, caption=None):
-    data = {"chat_id": chat_id, "photo": photo_url}
-    if caption:
-        data["caption"] = caption
-    requests.post(f"{TELEGRAM_API}/sendPhoto", json=data)
-
-def send_audio(chat_id, audio_bytes, filename="audio.mp3"):
-    url = f"{TELEGRAM_API}/sendAudio"
-    files = {"audio": (filename, audio_bytes)}
+def send_photo(chat_id, image_bytes):
+    files = {
+        "photo": ("image.png", image_bytes)
+    }
     data = {"chat_id": chat_id}
-    requests.post(url, data=data, files=files)
+    requests.post(
+        f"{TELEGRAM_API}/sendPhoto",
+        data=data,
+        files=files
+    )
 
-# ---------- هوش مصنوعی ساده ----------
-def ai_chat(text):
-    # تشخیص زبان و پاسخ ساده
-    if any(word in text.lower() for word in ["hello", "hi", "how"]):
-        return "Hello 👋\nThis reply is in English."
-    elif any(word in text for word in ["سلام", "چطوری", "درود"]):
-        return "سلام 😊\nاین پاسخ به زبان فارسی است."
-    elif any(word in text for word in ["مرحبا", "أهلا"]):
-        return "مرحباً 👋\nهذا الرد باللغة العربية."
-    else:
-        return "سلام 😊 این پاسخ به زبان فارسی است."
+# ================== ساخت تصویر ==================
+def generate_image(prompt):
+    try:
+        response = requests.post(
+            HF_MODEL_URL,
+            headers=HF_HEADERS,
+            json={"inputs": prompt},
+            timeout=60
+        )
 
-# ---------- Webhook ----------
+        if response.status_code != 200:
+            return None
+
+        return response.content
+    except Exception:
+        return None
+
+# ================== Webhook ==================
 @app.route("/", methods=["POST"])
 def webhook():
     update = request.get_json()
@@ -51,53 +61,48 @@ def webhook():
     chat_id = update["message"]["chat"]["id"]
     text = update["message"].get("text", "")
 
-    # /start
     if text == "/start":
-        send_message(chat_id,
-            "🤖 سلام!\n\n"
-            "دستورها:\n"
-            "1️⃣ چت: فقط پیام بفرست\n"
-            "2️⃣ عکس: /image توضیح\n"
-            "3️⃣ موزیک: /music متن"
+        send_message(
+            chat_id,
+            "🎨 ربات ساخت تصویر فعال شد\n\n"
+            "برای ساخت تصویر بنویس:\n"
+            "/image توضیح تصویر\n\n"
+            "مثال:\n"
+            "/image یک گربه روی دیوار در شب"
         )
         return {"ok": True}
 
-    # ساخت تصویر (نمونه رایگان)
     if text.startswith("/image"):
         prompt = text.replace("/image", "").strip()
+
         if not prompt:
-            send_message(chat_id, "❌ لطفاً توضیح عکس را بنویسید")
+            send_message(chat_id, "❌ لطفاً توضیح تصویر را بنویس")
+            return {"ok": True}
+
+        send_message(chat_id, "⏳ در حال ساخت تصویر...")
+
+        image_bytes = generate_image(prompt)
+
+        if image_bytes is None:
+            send_message(
+                chat_id,
+                "❌ ساخت تصویر ناموفق بود\n"
+                "احتمالاً محدودیت رایگان HuggingFace است\n"
+                "کمی بعد دوباره امتحان کن"
+            )
         else:
-            send_message(chat_id, "🎨 در حال ساخت تصویر...")
-            # استفاده از تصویر نمونه از اینترنت
-            sample_image = "https://placekitten.com/512/512"
-            send_photo(chat_id, sample_image, "تصویر ساخته شد ✅")
+            send_photo(chat_id, image_bytes)
+
         return {"ok": True}
 
-    # ساخت موزیک/صدا با gTTS
-    if text.startswith("/music"):
-        prompt = text.replace("/music", "").strip()
-        if not prompt:
-            send_message(chat_id, "❌ لطفاً متن موزیک/شعر را بنویسید")
-        else:
-            tts = gTTS(prompt, lang="fa")
-            audio_bytes = io.BytesIO()
-            tts.write_to_fp(audio_bytes)
-            audio_bytes.seek(0)
-            send_audio(chat_id, audio_bytes, filename="music.mp3")
-        return {"ok": True}
-
-    # چت عادی
-    reply = ai_chat(text)
-    send_message(chat_id, reply)
+    send_message(chat_id, "ℹ️ برای ساخت تصویر از دستور /image استفاده کن")
     return {"ok": True}
 
-# ---------- تست دستی ----------
+# ================== تست ==================
 @app.route("/", methods=["GET"])
 def index():
     return "Bot is running ✅"
 
-# ---------- اجرا ----------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
