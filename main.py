@@ -4,50 +4,50 @@ import os
 from gtts import gTTS
 import uuid
 
-# ----------------- تنظیمات -----------------
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+# -------- تنظیمات --------
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-HF_IMAGE_API = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
+TG = f"https://api.telegram.org/bot{BOT_TOKEN}"
+HF_API = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
 
 app = Flask(__name__)
 
-# ----------------- تشخیص زبان -----------------
+# -------- ابزار --------
+def send_message(chat_id, text):
+    requests.post(f"{TG}/sendMessage", json={
+        "chat_id": chat_id,
+        "text": text
+    })
+
+def send_photo(chat_id, img):
+    requests.post(
+        f"{TG}/sendPhoto",
+        data={"chat_id": chat_id},
+        files={"photo": img}
+    )
+
+def send_audio(chat_id, path):
+    with open(path, "rb") as f:
+        requests.post(
+            f"{TG}/sendAudio",
+            data={"chat_id": chat_id},
+            files={"audio": f}
+        )
+
 def detect_lang(text):
     for c in text:
         if '\u0600' <= c <= '\u06FF':
-            if 'سلام' in text:
-                return "fa"
-            return "ar"
+            return "fa"
     if any(c.isalpha() for c in text):
         return "en"
     return "fa"
 
-# ----------------- تلگرام -----------------
-def send_message(chat_id, text, keyboard=None):
-    data = {"chat_id": chat_id, "text": text}
-    if keyboard:
-        data["reply_markup"] = keyboard
-    requests.post(f"{TELEGRAM_API}/sendMessage", json=data)
-
-def send_photo(chat_id, image_bytes):
-    files = {"photo": image_bytes}
-    data = {"chat_id": chat_id}
-    requests.post(f"{TELEGRAM_API}/sendPhoto", data=data, files=files)
-
-def send_audio(chat_id, file_path):
-    with open(file_path, "rb") as f:
-        files = {"audio": f}
-        data = {"chat_id": chat_id}
-        requests.post(f"{TELEGRAM_API}/sendAudio", data=data, files=files)
-
-# ----------------- تصویر -----------------
-def generate_image(prompt):
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+# -------- تصویر --------
+def make_image(prompt):
     r = requests.post(
-        HF_IMAGE_API,
-        headers=headers,
+        HF_API,
+        headers={"Authorization": f"Bearer {HF_TOKEN}"},
         json={"inputs": prompt},
         timeout=60
     )
@@ -55,96 +55,70 @@ def generate_image(prompt):
         return r.content
     return None
 
-# ----------------- موزیک MP3 -----------------
-def generate_music(text, lang):
-    tts = gTTS(text=text, lang="fa" if lang == "fa" else "en")
+# -------- صدا --------
+def make_voice(text, lang):
+    tts = gTTS(
+        text=text,
+        lang="fa" if lang == "fa" else "en",
+        slow=False
+    )
     path = f"/tmp/{uuid.uuid4()}.mp3"
     tts.save(path)
     return path
 
-# ----------------- منوی دکمه -----------------
-def main_menu():
-    return {
-        "inline_keyboard": [
-            [{"text": "🎨 ساخت تصویر", "callback_data": "image"}],
-            [{"text": "🎵 ساخت موزیک", "callback_data": "music"}],
-            [{"text": "💬 چت", "callback_data": "chat"}]
-        ]
-    }
-
-# ----------------- Webhook -----------------
+# -------- webhook --------
 @app.route("/", methods=["POST"])
 def webhook():
-    update = request.get_json()
-
-    # ---------- دکمه ----------
-    if "callback_query" in update:
-        q = update["callback_query"]
-        chat_id = q["message"]["chat"]["id"]
-        data = q["data"]
-
-        if data == "image":
-            send_message(chat_id, "✍️ بنویس:\nتصویر یک گربه روی دیوار")
-        elif data == "music":
-            send_message(chat_id, "✍️ بنویس:\nیک موزیک شاد بساز")
-        elif data == "chat":
-            send_message(chat_id, "💬 هر چی دوست داری بنویس")
-
+    data = request.get_json()
+    if "message" not in data:
         return {"ok": True}
 
-    # ---------- پیام ----------
-    if "message" not in update:
-        return {"ok": True}
-
-    chat_id = update["message"]["chat"]["id"]
-    text = update["message"].get("text", "").strip()
+    msg = data["message"]
+    chat_id = msg["chat"]["id"]
+    text = msg.get("text", "").strip()
 
     if text == "/start":
-        send_message(
-            chat_id,
-            "🤖 خوش اومدی!\nیکی از گزینه‌ها رو انتخاب کن:",
-            main_menu()
+        send_message(chat_id,
+            "🤖 ربات آماده است\n"
+            "🖼 بنویس: تصویر یک گربه\n"
+            "🎵 بنویس: صدا بساز\n"
+            "💬 هر چیز دیگر = چت"
         )
         return {"ok": True}
 
     lang = detect_lang(text)
 
-    # ---------- تصویر ----------
+    # --- تصویر ---
     if "تصویر" in text or "image" in text:
         send_message(chat_id, "🎨 در حال ساخت تصویر...")
-        img = generate_image(text)
+        img = make_image(text)
         if img:
             send_photo(chat_id, img)
         else:
-            send_message(chat_id, "❌ ساخت تصویر ناموفق بود (محدودیت رایگان)")
+            send_message(chat_id, "❌ خطا در ساخت تصویر")
         return {"ok": True}
 
-    # ---------- موزیک ----------
-    if "موزیک" in text or "music" in text or "آهنگ" in text:
-        msg = {
-            "fa": "این یک نمونه موزیک صوتی است",
-            "en": "This is a sample audio music",
-            "ar": "هذا نموذج موسيقى صوتية"
+    # --- صدا ---
+    if "صدا" in text or "voice" in text:
+        reply = {
+            "fa": "این یک نمونه صدای فارسی است",
+            "en": "This is an English voice sample"
         }[lang]
-        path = generate_music(msg, lang)
+        path = make_voice(reply, lang)
         send_audio(chat_id, path)
         return {"ok": True}
 
-    # ---------- چت ----------
-    replies = {
-        "fa": "سلام 😊 من اینجام",
-        "en": "Hello 😊 I'm here",
-        "ar": "مرحباً 😊 أنا هنا"
-    }
-    send_message(chat_id, replies[lang])
+    # --- چت واقعی ---
+    if lang == "fa":
+        send_message(chat_id, f"گفتی: «{text}»\nمن شنیدم 😊")
+    else:
+        send_message(chat_id, f"You said: {text}")
+
     return {"ok": True}
 
-# ----------------- تست -----------------
 @app.route("/", methods=["GET"])
-def index():
+def home():
     return "Bot running ✅"
 
-# ----------------- اجرا -----------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
