@@ -1,47 +1,55 @@
 from flask import Flask, request
 import requests
 import os
-import base64
 
 # ---------- تنظیمات ----------
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-HF_TOKEN = os.getenv("HF_TOKEN")
-HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
+HF_TOKEN = os.getenv("HF_TOKEN")  # توکن HuggingFace برای تصویر
 
 app = Flask(__name__)
 TELEGRAM_API = f"https://api.telegram.org/bot{TOKEN}"
 
 # ---------- توابع تلگرام ----------
 def send_message(chat_id, text):
-    requests.post(f"{TELEGRAM_API}/sendMessage", json={"chat_id": chat_id, "text": text})
+    requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        json={"chat_id": chat_id, "text": text}
+    )
 
-def send_photo(chat_id, file_path, caption=None):
-    files = {"photo": open(file_path, "rb")}
-    data = {"chat_id": chat_id}
+def send_photo(chat_id, photo_url, caption=None):
+    data = {"chat_id": chat_id, "photo": photo_url}
     if caption:
         data["caption"] = caption
-    requests.post(f"{TELEGRAM_API}/sendPhoto", data=data, files=files)
+    requests.post(f"{TELEGRAM_API}/sendPhoto", json=data)
 
-# ---------- ساخت تصویر ----------
-def generate_image(prompt):
-    HF_API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2"
-    payload = {"inputs": prompt}
-    try:
-        response = requests.post(HF_API_URL, headers=HEADERS, json=payload)
+# ---------- هوش مصنوعی (چت ساده) ----------
+def ai_chat(prompt):
+    # تشخیص زبان برای پیام‌ها
+    if any("\u0600" <= c <= "\u06FF" for c in prompt):
+        return "سلام 😊 این پاسخ به زبان فارسی است."  # برای فارسی و عربی
+    elif any("\u0621" <= c <= "\u064A" for c in prompt):
+        return "مرحباً 👋 هذا الرد باللغة العربية."
+    else:
+        return "Hello 👋 This reply is in English."
+
+# ---------- ساخت تصویر با HuggingFace ----------
+def ai_image(prompt):
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    json_data = {"inputs": prompt}
+    response = requests.post(
+        "https://api-inference.huggingface.co/models/hogiahien/counterfeit-v30-edited",
+        headers=headers,
+        json=json_data
+    )
+    if response.status_code == 200:
         data = response.json()
-
-        if isinstance(data, dict) and "error" in data:
-            print("❌ خطا:", data["error"])
+        if isinstance(data, list) and "generated_image_url" in data[0]:
+            return data[0]["generated_image_url"]
+        elif isinstance(data, dict) and "error" in data:
             return None
-
-        image_base64 = data[0]["image_base64"]
-        image_bytes = base64.b64decode(image_base64)
-        filename = "temp_image.png"
-        with open(filename, "wb") as f:
-            f.write(image_bytes)
-        return filename
-    except Exception as e:
-        print("❌ خطا در ساخت تصویر:", e)
+        else:
+            return None
+    else:
         return None
 
 # ---------- Webhook ----------
@@ -54,25 +62,38 @@ def webhook():
     chat_id = update["message"]["chat"]["id"]
     text = update["message"].get("text", "")
 
+    # /start
     if text == "/start":
-        send_message(chat_id, "🤖 سلام!\nبرای ساخت تصویر، بنویس:\n/image توضیح تصویر")
+        send_message(
+            chat_id,
+            "🤖 سلام!\n\n"
+            "دستورها:\n"
+            "1️⃣ فقط پیام بفرست (چت)\n"
+            "2️⃣ تصویر: /image توضیح"
+        )
         return {"ok": True}
 
+    # ساخت تصویر
     if text.startswith("/image"):
         prompt = text.replace("/image", "").strip()
         if not prompt:
-            send_message(chat_id, "❌ لطفاً توضیح تصویر را بنویسید")
+            send_message(chat_id, "❌ لطفاً توضیح عکس را بنویسید")
         else:
             send_message(chat_id, "🎨 در حال ساخت تصویر...")
-            filename = generate_image(prompt)
-            if filename:
-                send_photo(chat_id, filename, "تصویر ساخته شد ✅")
+            url = ai_image(prompt)
+            if url:
+                send_photo(chat_id, url, "تصویر ساخته شد ✅")
             else:
                 send_message(chat_id, "❌ خطا در ساخت تصویر")
         return {"ok": True}
 
+    # چت عادی
+    reply = ai_chat(text)
+    send_message(chat_id, reply)
+
     return {"ok": True}
 
+# ---------- تست دستی ----------
 @app.route("/", methods=["GET"])
 def index():
     return "Bot is running ✅"
