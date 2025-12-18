@@ -2,5 +2,4 @@ Flask
 requests
 gunicorn
 python-dotenv
-openai
 gTTS
