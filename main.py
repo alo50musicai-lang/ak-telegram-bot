@@ -1,108 +1,96 @@
 from flask import Flask, request
 import requests
 import os
+from openai import OpenAI
 
-# ================== تنظیمات ==================
+# ================= ENV =================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-HF_TOKEN = os.getenv("HF_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-
-HF_MODEL_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
-HF_HEADERS = {
-    "Authorization": f"Bearer {HF_TOKEN}"
-}
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 app = Flask(__name__)
+TG_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
-# ================== توابع تلگرام ==================
+# ================= TELEGRAM =================
 def send_message(chat_id, text):
-    requests.post(
-        f"{TELEGRAM_API}/sendMessage",
-        json={"chat_id": chat_id, "text": text}
-    )
+    requests.post(f"{TG_API}/sendMessage", json={
+        "chat_id": chat_id,
+        "text": text
+    })
 
-def send_photo(chat_id, image_bytes):
-    files = {
-        "photo": ("image.png", image_bytes)
-    }
-    data = {"chat_id": chat_id}
-    requests.post(
-        f"{TELEGRAM_API}/sendPhoto",
-        data=data,
-        files=files
-    )
+def send_photo(chat_id, photo_url, caption=None):
+    requests.post(f"{TG_API}/sendPhoto", json={
+        "chat_id": chat_id,
+        "photo": photo_url,
+        "caption": caption
+    })
 
-# ================== ساخت تصویر ==================
+# ================= LANGUAGE AUTO =================
+def detect_language(text):
+    for c in text:
+        if "\u0600" <= c <= "\u06FF":
+            return "fa"
+        if "a" <= c.lower() <= "z":
+            return "en"
+    return "fa"
+
+# ================= CHAT =================
+def ai_chat(prompt):
+    lang = detect_language(prompt)
+    system = {
+        "fa": "فقط فارسی پاسخ بده",
+        "en": "Reply only in English",
+        "ar": "أجب باللغة العربية فقط"
+    }[lang]
+
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    return response.choices[0].message.content
+
+# ================= IMAGE (REAL & FREE) =================
 def generate_image(prompt):
-    try:
-        response = requests.post(
-            HF_MODEL_URL,
-            headers=HF_HEADERS,
-            json={"inputs": prompt},
-            timeout=60
-        )
+    url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}"
+    return url
 
-        if response.status_code != 200:
-            return None
-
-        return response.content
-    except Exception:
-        return None
-
-# ================== Webhook ==================
+# ================= WEBHOOK =================
 @app.route("/", methods=["POST"])
 def webhook():
-    update = request.get_json()
+    data = request.get_json()
+    if "message" not in data:
+        return "ok"
 
-    if "message" not in update:
-        return {"ok": True}
-
-    chat_id = update["message"]["chat"]["id"]
-    text = update["message"].get("text", "")
+    chat_id = data["message"]["chat"]["id"]
+    text = data["message"].get("text", "")
 
     if text == "/start":
-        send_message(
-            chat_id,
-            "🎨 ربات ساخت تصویر فعال شد\n\n"
-            "برای ساخت تصویر بنویس:\n"
-            "/image توضیح تصویر\n\n"
-            "مثال:\n"
-            "/image یک گربه روی دیوار در شب"
+        send_message(chat_id,
+            "🤖 ربات آماده است\n\n"
+            "🖼 تصویر: تصویر یک گربه روی دیوار\n"
+            "💬 چت: هرچی خواستی بنویس"
         )
-        return {"ok": True}
+        return "ok"
 
-    if text.startswith("/image"):
-        prompt = text.replace("/image", "").strip()
+    if "تصویر" in text or "image" in text or "pic" in text:
+        send_message(chat_id, "🎨 در حال ساخت تصویر...")
+        img = generate_image(text)
+        send_photo(chat_id, img, "✅ تصویر ساخته شد")
+        return "ok"
 
-        if not prompt:
-            send_message(chat_id, "❌ لطفاً توضیح تصویر را بنویس")
-            return {"ok": True}
+    reply = ai_chat(text)
+    send_message(chat_id, reply)
+    return "ok"
 
-        send_message(chat_id, "⏳ در حال ساخت تصویر...")
-
-        image_bytes = generate_image(prompt)
-
-        if image_bytes is None:
-            send_message(
-                chat_id,
-                "❌ ساخت تصویر ناموفق بود\n"
-                "احتمالاً محدودیت رایگان HuggingFace است\n"
-                "کمی بعد دوباره امتحان کن"
-            )
-        else:
-            send_photo(chat_id, image_bytes)
-
-        return {"ok": True}
-
-    send_message(chat_id, "ℹ️ برای ساخت تصویر از دستور /image استفاده کن")
-    return {"ok": True}
-
-# ================== تست ==================
+# ================= TEST =================
 @app.route("/", methods=["GET"])
 def index():
-    return "Bot is running ✅"
+    return "Bot running ✅"
 
+# ================= RUN =================
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
