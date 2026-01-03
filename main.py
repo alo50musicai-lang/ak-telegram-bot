@@ -101,7 +101,7 @@ def webhook():
         return {"ok": True}
 
   # --- گفتگو---
-    if text == "🫥 گفتگو"
+    if text == "🫥 گفتگو":
         send_message(chat_id, "هر چی دوست داری بگو 😊")
         return {"ok": True}
 
