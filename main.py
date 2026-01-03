@@ -100,6 +100,11 @@ def webhook():
         send_message(chat_id, "هر چی دوست داری بنویس 😊")
         return {"ok": True}
 
+  # --- گفتگو---
+    if text == "🫥 گفتگو"
+        send_message(chat_id, "هر چی دوست داری بگو 😊")
+        return {"ok": True}
+
     # --- ساخت تصویر با متن ---
     if "تصویر" in text or "image" in text:
         send_message(chat_id, "🎨 در حال ساخت تصویر...")
